@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+
+  --color-bg: #eef1ea;
+  --color-surface: #fbfbf8;
+  --color-surface-2: #f2f4ee;
+  --color-border: #dbdfd3;
+  --color-border-strong: #c4cbb9;
+  --color-text: #1d241d;
+  --color-text-muted: #5c6b5a;
+  --color-text-faint: #8b9788;
+
+  --color-accent: #2d3f6b;
+  --color-accent-soft: #e3e7f2;
+  --color-accent-strong: #1f2c4e;
+
+  --color-positive: #2f7d4f;
+  --color-positive-soft: #e2f0e6;
+  --color-warning: #a8721c;
+  --color-warning-soft: #f5e9d3;
+  --color-negative: #ad3b3b;
+  --color-negative-soft: #f6e2e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: #11151a;
+    --color-surface: #171d24;
+    --color-surface-2: #1c232b;
+    --color-border: #2b333c;
+    --color-border-strong: #3a4550;
+    --color-text: #e7ebe2;
+    --color-text-muted: #97a293;
+    --color-text-faint: #667066;
+
+    --color-accent: #8fb0e8;
+    --color-accent-soft: #223252;
+    --color-accent-strong: #b9cdf2;
+
+    --color-positive: #5fc48c;
+    --color-positive-soft: #1c3327;
+    --color-warning: #e0ac4c;
+    --color-warning-soft: #3a2e15;
+    --color-negative: #e2827d;
+    --color-negative-soft: #3a2220;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+input, select, textarea, button {
+  font-family: inherit;
+}
+::selection {
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* área segura do iPhone (notch / home indicator) quando instalado como PWA */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
