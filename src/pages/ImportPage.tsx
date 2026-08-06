@@ -26,7 +26,7 @@ export function ImportPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(() => loadStoredPreview())
-  const [done, setDone] = useState(false)
+  const [result, setResult] = useState<{ importedCount: number; matchedCount: number; skippedCount: number } | null>(null)
 
   // Guarda a prévia lida enquanto ela não é confirmada — trocar de aba,
   // a PWA atualizar sozinha em segundo plano, ou o navegador descartar a
@@ -38,7 +38,7 @@ export function ImportPage() {
 
   async function handleFile(file: File) {
     setError(null)
-    setDone(false)
+    setResult(null)
     setBusy(true)
     try {
       const isOfx = /\.ofx$/i.test(file.name)
@@ -67,11 +67,11 @@ export function ImportPage() {
     if (!preview) return
     setBusy(true)
     try {
-      await importFile(
+      const summary = await importFile(
         { filename: preview.filename, fileType: preview.fileType, cardOrBankLabel: preview.parsed.bankLabel, dueDate: preview.parsed.dueDate },
         preview.parsed
       )
-      setDone(true)
+      setResult(summary)
       setPreview(null)
     } catch (err) {
       setError(getErrorMessage(err, 'Não consegui salvar os lançamentos.'))
@@ -121,9 +121,12 @@ export function ImportPage() {
               {error}
             </div>
           )}
-          {done && (
+          {result && (
             <div className="mt-3 text-[12.5px] text-positive bg-positive-soft border border-positive/30 rounded-lg p-3">
-              Importado! Vá em "Conciliar" pra revisar e classificar os lançamentos.
+              Importado! {result.importedCount} lançamento{result.importedCount === 1 ? '' : 's'} novo{result.importedCount === 1 ? '' : 's'}
+              {result.matchedCount > 0 && `, ${result.matchedCount} já casou com previsto`}
+              {result.skippedCount > 0 && ` · ${result.skippedCount} ignorado${result.skippedCount === 1 ? '' : 's'} por já existir (mesma data/valor/descrição)`}
+              . Vá em "Conciliar" pra revisar e classificar.
             </div>
           )}
 

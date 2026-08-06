@@ -104,7 +104,7 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
 
   const importFile = useCallback(
     async (meta: { filename: string; fileType: 'pdf' | 'ofx'; cardOrBankLabel: string | null; dueDate: string | null }, parsed: OfxParsed) => {
-      if (!household || !user) return
+      if (!household || !user) return { importedCount: 0, matchedCount: 0, skippedCount: 0 }
       const { data: importRow, error: impErr } = await supabase
         .from('imports')
         .insert({
@@ -121,8 +121,28 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
         .single()
       if (impErr) throw impErr
 
+      // Dedup: mesma data + valor + descrição já importado antes (ex.: o
+      // mesmo arquivo enviado de novo) não gera lançamento duplicado.
+      const dates = parsed.entries.map((e) => e.date).sort()
+      const { data: existing } = await supabase
+        .from('entries')
+        .select('date, amount, description')
+        .eq('household_id', household.id)
+        .eq('kind', 'importado')
+        .gte('date', dates[0])
+        .lte('date', dates[dates.length - 1])
+      const seenKeys = new Set((existing ?? []).map((e) => `${e.date}|${e.amount}|${e.description}`))
+
       let matchedCount = 0
+      let skippedCount = 0
       for (const e of parsed.entries) {
+        const key = `${e.date}|${e.amount}|${e.description}`
+        if (seenKeys.has(key)) {
+          skippedCount++
+          continue
+        }
+        seenKeys.add(key)
+
         const { data: candidate } = await supabase
           .from('entries')
           .select('*, entry_splits(*)')
@@ -160,12 +180,15 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
         }
       }
 
+      const importedCount = parsed.entries.length - skippedCount
       await logActivity(
         household.id,
         user.id,
         'imported_file',
-        `importou "${meta.filename}" — ${parsed.entries.length} lançamentos${matchedCount ? `, ${matchedCount} já casaram com previstos` : ''}`
+        `importou "${meta.filename}" — ${importedCount} lançamentos${matchedCount ? `, ${matchedCount} já casaram com previstos` : ''}${skippedCount ? `, ${skippedCount} ignorados por já existirem` : ''}`
       )
+
+      return { importedCount, matchedCount, skippedCount }
     },
     [household, user]
   )
