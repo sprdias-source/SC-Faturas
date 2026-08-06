@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Upload, FileText, AlertTriangle } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, CardTitle, Pill } from '../components/ui'
@@ -7,13 +7,34 @@ import { parseOFX, type OfxParsed } from '../lib/ofx'
 import { formatBRL, formatDateFull } from '../lib/format'
 import { getErrorMessage } from '../lib/errors'
 
+type Preview = { filename: string; fileType: 'pdf' | 'ofx'; parsed: OfxParsed }
+
+const PREVIEW_STORAGE_KEY = 'confere:import-preview'
+
+function loadStoredPreview(): Preview | null {
+  try {
+    const raw = localStorage.getItem(PREVIEW_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as Preview) : null
+  } catch {
+    return null
+  }
+}
+
 export function ImportPage() {
   const { importFile } = useEntries()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<{ filename: string; fileType: 'pdf' | 'ofx'; parsed: OfxParsed } | null>(null)
+  const [preview, setPreview] = useState<Preview | null>(() => loadStoredPreview())
   const [done, setDone] = useState(false)
+
+  // Guarda a prévia lida enquanto ela não é confirmada — trocar de aba,
+  // a PWA atualizar sozinha em segundo plano, ou o navegador descartar a
+  // aba não pode fazer você reimportar o arquivo do zero.
+  useEffect(() => {
+    if (preview) localStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(preview))
+    else localStorage.removeItem(PREVIEW_STORAGE_KEY)
+  }, [preview])
 
   async function handleFile(file: File) {
     setError(null)
@@ -31,14 +52,8 @@ export function ImportPage() {
         setPreview({ filename: file.name, fileType: 'ofx', parsed })
       } else {
         const { parsePdfEntries } = await import('../lib/pdf')
-        const lines = await parsePdfEntries(file)
-        if (lines.length === 0) throw new Error('Não consegui reconhecer linhas de lançamento nesse PDF — o layout pode ser diferente do esperado.')
-        const parsed: OfxParsed = {
-          entries: lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, isCredit: false })),
-          bankLabel: null,
-          dueDate: null,
-          totalAmount: lines.reduce((s, l) => s + l.amount, 0),
-        }
+        const parsed = await parsePdfEntries(file)
+        if (parsed.entries.length === 0) throw new Error('Não consegui reconhecer linhas de lançamento nesse PDF — o layout pode ser diferente do esperado.')
         setPreview({ filename: file.name, fileType: 'pdf', parsed })
       }
     } catch (err) {
@@ -137,7 +152,7 @@ export function ImportPage() {
                 <div key={i} className="flex items-center justify-between text-[12px] gap-2">
                   <span className="text-text-faint flex-shrink-0 font-mono">{formatDateFull(e.date).slice(0, 5)}</span>
                   <span className="truncate flex-1">{e.description}</span>
-                  <span className="font-mono flex-shrink-0">{formatBRL(e.amount)}</span>
+                  <span className={`font-mono flex-shrink-0 ${e.isCredit ? 'text-positive' : ''}`}>{e.isCredit ? '+ ' : ''}{formatBRL(e.amount)}</span>
                 </div>
               ))}
               {preview.parsed.entries.length > 8 && <span className="text-[11px] text-text-faint">+ {preview.parsed.entries.length - 8} outros...</span>}
@@ -146,7 +161,7 @@ export function ImportPage() {
               <Button variant="primary" className="flex-1 justify-center" onClick={confirmImport} disabled={busy}>
                 {busy ? 'Salvando...' : 'Confirmar importação'}
               </Button>
-              <Button variant="ghost" onClick={() => setPreview(null)}>
+              <Button variant="ghost" onClick={() => setPreview(null)} disabled={busy}>
                 Cancelar
               </Button>
             </div>
