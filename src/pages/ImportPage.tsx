@@ -5,6 +5,7 @@ import { Button, Card, CardTitle, Pill } from '../components/ui'
 import { useEntries } from '../hooks/useEntries'
 import { parseOFX, type OfxParsed } from '../lib/ofx'
 import { formatBRL, formatDateFull } from '../lib/format'
+import { getErrorMessage } from '../lib/errors'
 
 export function ImportPage() {
   const { importFile } = useEntries()
@@ -41,7 +42,7 @@ export function ImportPage() {
         setPreview({ filename: file.name, fileType: 'pdf', parsed })
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não consegui ler esse arquivo.')
+      setError(getErrorMessage(err, 'Não consegui ler esse arquivo.'))
     } finally {
       setBusy(false)
     }
@@ -58,7 +59,7 @@ export function ImportPage() {
       setDone(true)
       setPreview(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não consegui salvar os lançamentos.')
+      setError(getErrorMessage(err, 'Não consegui salvar os lançamentos.'))
     } finally {
       setBusy(false)
     }

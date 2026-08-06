@@ -81,11 +81,16 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
   const createHousehold = useCallback(
     async (name: string, displayName: string, color: string) => {
       if (!user) return
-      const { data: h, error } = await supabase.from('households').insert({ name }).select().single()
+      // Gera o id no cliente e evita reler a linha logo em seguida: enquanto
+      // o usuário ainda não é membro, a política de RLS de households
+      // bloqueia esse "select de volta" (teria que ser membro pra ver a
+      // fatura, mas ele só vira membro no passo seguinte).
+      const id = crypto.randomUUID()
+      const { error } = await supabase.from('households').insert({ id, name })
       if (error) throw error
       const { error: memErr } = await supabase
         .from('household_members')
-        .insert({ household_id: h.id, user_id: user.id, display_name: displayName, avatar_color: color })
+        .insert({ household_id: id, user_id: user.id, display_name: displayName, avatar_color: color })
       if (memErr) throw memErr
       await load()
     },

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Users } from 'lucide-react'
 import { useHousehold } from '../hooks/useHousehold'
 import { Button, Card, Field, Input } from '../components/ui'
+import { getErrorMessage } from '../lib/errors'
 
 const COLORS = ['#2d3f6b', '#2f7d4f', '#a8721c', '#ad3b3b', '#8a5fb0']
 
@@ -23,7 +24,7 @@ export function HouseholdSetupPage() {
       if (mode === 'create') await createHousehold(name, displayName, color)
       else await joinHousehold(code, displayName, color)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não deu certo, tenta de novo.')
+      setError(getErrorMessage(err))
     } finally {
       setLoading(false)
     }
