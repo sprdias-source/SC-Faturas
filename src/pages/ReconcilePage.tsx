@@ -17,9 +17,10 @@ export function ReconcilePage() {
   const [draftSplits, setDraftSplits] = useState<Record<string, SplitInput[]>>({})
   const [bulkAccount, setBulkAccount] = useState('')
 
-  const totalAmount = entries.reduce((s, e) => s + e.amount, 0)
-  const classifiedAmount = entries.filter((e) => e.status !== 'pendente').reduce((s, e) => s + e.amount, 0)
-  const pendingAmount = totalAmount - classifiedAmount
+  const despesasTotal = entries.filter((e) => e.type === 'despesa').reduce((s, e) => s + e.amount, 0)
+  const creditosTotal = entries.filter((e) => e.type === 'receita').reduce((s, e) => s + e.amount, 0)
+  const pendingCount = entries.filter((e) => e.status === 'pendente').length
+  const pendingAmount = entries.filter((e) => e.status === 'pendente').reduce((s, e) => s + e.amount, 0)
 
   const selectedTotal = useMemo(() => entries.filter((e) => selected.has(e.id)).reduce((s, e) => s + e.amount, 0), [entries, selected])
 
@@ -79,8 +80,10 @@ export function ReconcilePage() {
 
       <div className="px-4">
         <div className="grid grid-cols-2 gap-2.5 mb-4">
-          <KpiCard label="Total importado" value={formatBRL(totalAmount)} sub={`${entries.length} lançamentos`} />
-          <KpiCard label="A classificar" value={formatBRL(pendingAmount)} tone="warning" sub={`${entries.filter((e) => e.status === 'pendente').length} pendentes`} />
+          <KpiCard label="Despesas" value={formatBRL(despesasTotal)} sub={`${entries.filter((e) => e.type === 'despesa').length} lançamentos`} />
+          <KpiCard label="Pagamentos/créditos" value={formatBRL(creditosTotal)} tone="positive" sub={`${entries.filter((e) => e.type === 'receita').length} lançamentos`} />
+          <KpiCard label="A classificar" value={formatBRL(pendingAmount)} tone="warning" sub={`${pendingCount} pendentes`} />
+          <KpiCard label="Total de lançamentos" value={String(entries.length)} />
         </div>
 
         <Card className="p-3">
