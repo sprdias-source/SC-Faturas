@@ -17,6 +17,8 @@ export function ReconcilePage() {
   const [openSplit, setOpenSplit] = useState<Set<string>>(new Set())
   const [draftSplits, setDraftSplits] = useState<Record<string, SplitInput[]>>({})
   const [bulkAccount, setBulkAccount] = useState('')
+  const [bulkMode, setBulkMode] = useState<'single' | 'split'>('single')
+  const [bulkSplits, setBulkSplits] = useState<SplitInput[]>([])
 
   // Ajuste administrativo do banco (pagamento da fatura anterior, crédito
   // de anuidade...) não é lançamento pra categorizar — já entra confirmado
@@ -72,13 +74,31 @@ export function ReconcilePage() {
     })
   }
 
+  function openBulkSplit() {
+    setBulkMode('split')
+    if (bulkSplits.length === 0) {
+      setBulkSplits([{ account_id: accounts[0]?.id ?? '', percent: 100, amount: selectedTotal }])
+    }
+  }
+
   async function applyBulk() {
-    if (!bulkAccount) return
-    for (const entry of entries) {
-      if (selected.has(entry.id)) await quickClassify(entry.id, bulkAccount, entry.amount)
+    const targets = entries.filter((e) => selected.has(e.id))
+    if (bulkMode === 'single') {
+      if (!bulkAccount) return
+      for (const entry of targets) await quickClassify(entry.id, bulkAccount, entry.amount)
+    } else {
+      if (bulkSplits.length === 0) return
+      // Mesma % de cada linha aplicada ao valor de CADA lançamento
+      // selecionado — não divide o total do lote, divide cada um deles.
+      for (const entry of targets) {
+        const splits = bulkSplits.map((s) => ({ account_id: s.account_id, percent: s.percent, amount: +((entry.amount * s.percent) / 100).toFixed(2) }))
+        await classifyEntry(entry.id, splits)
+      }
     }
     setSelected(new Set())
     setBulkAccount('')
+    setBulkMode('single')
+    setBulkSplits([])
   }
 
   return (
@@ -182,19 +202,43 @@ export function ReconcilePage() {
 
       {selected.size > 0 && (
         <div className="fixed left-0 right-0 z-40 px-3" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 68px)' }}>
-          <div className="max-w-lg mx-auto bg-surface border-[1.5px] border-accent rounded-xl p-3 shadow-2xl flex flex-col gap-2">
+          <div className="max-w-lg mx-auto bg-surface border-[1.5px] border-accent rounded-xl p-3 shadow-2xl flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
             <div className="flex items-center justify-between text-[12px]">
               <span>
                 <b className="text-accent-strong">{selected.size}</b> selecionados
               </span>
               <span className="font-mono font-bold">{formatBRL(selectedTotal)}</span>
             </div>
-            <div className="flex gap-2">
-              <AccountSelect accounts={accounts} value={bulkAccount} onChange={setBulkAccount} className="flex-1" />
-              <Button variant="primary" onClick={applyBulk} disabled={!bulkAccount}>
-                Aplicar
-              </Button>
+
+            <div className="flex border border-border-strong rounded-md overflow-hidden w-fit">
+              <button
+                type="button"
+                onClick={() => setBulkMode('single')}
+                className={`text-[10.5px] font-bold px-2.5 py-1 ${bulkMode === 'single' ? 'bg-accent text-surface' : 'text-text-faint'}`}
+              >
+                Uma conta
+              </button>
+              <button type="button" onClick={openBulkSplit} className={`text-[10.5px] font-bold px-2.5 py-1 ${bulkMode === 'split' ? 'bg-accent text-surface' : 'text-text-faint'}`}>
+                Ratear
+              </button>
             </div>
+
+            {bulkMode === 'single' ? (
+              <div className="flex gap-2">
+                <AccountSelect accounts={accounts} value={bulkAccount} onChange={setBulkAccount} className="flex-1" />
+                <Button variant="primary" onClick={applyBulk} disabled={!bulkAccount}>
+                  Aplicar
+                </Button>
+              </div>
+            ) : (
+              <>
+                <p className="text-[11px] text-text-faint">A % de cada linha é aplicada ao valor de cada um dos {selected.size} lançamentos, não ao total do lote.</p>
+                <SplitEditor accounts={accounts} totalAmount={selectedTotal} value={bulkSplits} onChange={setBulkSplits} />
+                <Button variant="primary" className="justify-center" onClick={applyBulk} disabled={bulkSplits.length === 0}>
+                  Aplicar rateio aos {selected.size} selecionados
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
