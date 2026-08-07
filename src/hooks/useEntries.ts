@@ -104,7 +104,11 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
   )
 
   const importFile = useCallback(
-    async (meta: { filename: string; fileType: 'pdf' | 'ofx'; cardOrBankLabel: string | null; dueDate: string | null }, parsed: OfxParsed) => {
+    async (
+      meta: { filename: string; fileType: 'pdf' | 'ofx'; cardOrBankLabel: string | null; dueDate: string | null },
+      parsed: OfxParsed,
+      originalFile?: File | null
+    ) => {
       if (!household || !user) return { importedCount: 0, matchedCount: 0, skippedCount: 0 }
       const { data: importRow, error: impErr } = await supabase
         .from('imports')
@@ -121,6 +125,17 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
         .select()
         .single()
       if (impErr) throw impErr
+
+      // Guarda o arquivo original (se ele ainda estiver disponível — some
+      // se a página recarregou entre importar e confirmar) pra dar pra
+      // ver/baixar depois na lista de importações.
+      if (originalFile) {
+        const path = `${household.id}/${importRow.id}-${originalFile.name}`
+        const { error: upErr } = await supabase.storage.from('imports').upload(path, originalFile, {
+          contentType: originalFile.type || undefined,
+        })
+        if (!upErr) await supabase.from('imports').update({ storage_path: path }).eq('id', importRow.id)
+      }
 
       // Dedup: mesma data + valor + descrição já importado antes (ex.: o
       // mesmo arquivo enviado de novo) não gera lançamento duplicado.

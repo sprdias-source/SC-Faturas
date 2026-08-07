@@ -46,6 +46,7 @@ export interface Import {
   due_date: string | null
   total_amount: number | null
   entries_count: number
+  storage_path: string | null
   imported_by: string
   created_at: string
 }

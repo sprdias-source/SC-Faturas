@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Upload, FileText, AlertTriangle } from 'lucide-react'
+import { Upload, FileText, AlertTriangle, Eye, Trash2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, CardTitle, Pill } from '../components/ui'
 import { useEntries } from '../hooks/useEntries'
+import { useImports } from '../hooks/useImports'
 import { parseOFX, type OfxParsed } from '../lib/ofx'
 import { formatBRL, formatDateFull } from '../lib/format'
 import { getErrorMessage } from '../lib/errors'
+import type { Import } from '../lib/types'
 
 type Preview = { filename: string; fileType: 'pdf' | 'ofx'; parsed: OfxParsed }
 
@@ -22,15 +24,20 @@ function loadStoredPreview(): Preview | null {
 
 export function ImportPage() {
   const { importFile } = useEntries()
+  const { imports, viewImport, deleteImport } = useImports()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(() => loadStoredPreview())
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [result, setResult] = useState<{ importedCount: number; matchedCount: number; skippedCount: number } | null>(null)
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null)
 
   // Guarda a prévia lida enquanto ela não é confirmada — trocar de aba,
   // a PWA atualizar sozinha em segundo plano, ou o navegador descartar a
-  // aba não pode fazer você reimportar o arquivo do zero.
+  // aba não pode fazer você reimportar o arquivo do zero. O File original
+  // não persiste aqui (não dá pra guardar em localStorage) — some se a
+  // página recarregar antes de confirmar, mas os dados lidos continuam.
   useEffect(() => {
     if (preview) localStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(preview))
     else localStorage.removeItem(PREVIEW_STORAGE_KEY)
@@ -56,6 +63,7 @@ export function ImportPage() {
         if (parsed.entries.length === 0) throw new Error('Não consegui reconhecer linhas de lançamento nesse PDF — o layout pode ser diferente do esperado.')
         setPreview({ filename: file.name, fileType: 'pdf', parsed })
       }
+      setPendingFile(file)
     } catch (err) {
       setError(getErrorMessage(err, 'Não consegui ler esse arquivo.'))
     } finally {
@@ -69,14 +77,39 @@ export function ImportPage() {
     try {
       const summary = await importFile(
         { filename: preview.filename, fileType: preview.fileType, cardOrBankLabel: preview.parsed.bankLabel, dueDate: preview.parsed.dueDate },
-        preview.parsed
+        preview.parsed,
+        pendingFile
       )
       setResult(summary)
       setPreview(null)
+      setPendingFile(null)
     } catch (err) {
       setError(getErrorMessage(err, 'Não consegui salvar os lançamentos.'))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleView(imp: Import) {
+    setRowBusyId(imp.id)
+    try {
+      await viewImport(imp)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Não consegui abrir esse arquivo.'))
+    } finally {
+      setRowBusyId(null)
+    }
+  }
+
+  async function handleDelete(imp: Import) {
+    if (!confirm(`Excluir "${imp.filename}"? Isso apaga também os ${imp.entries_count} lançamentos que vieram dela (mesmo os já classificados/confirmados). Não dá pra desfazer.`)) return
+    setRowBusyId(imp.id)
+    try {
+      await deleteImport(imp)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Não consegui excluir essa importação.'))
+    } finally {
+      setRowBusyId(null)
     }
   }
 
@@ -160,16 +193,58 @@ export function ImportPage() {
               ))}
               {preview.parsed.entries.length > 8 && <span className="text-[11px] text-text-faint">+ {preview.parsed.entries.length - 8} outros...</span>}
             </div>
+            {!pendingFile && (
+              <p className="text-[11px] text-warning mb-2">A página recarregou desde que você leu esse arquivo — vai importar os lançamentos normalmente, mas sem guardar o arquivo original pra visualizar depois.</p>
+            )}
             <div className="flex gap-2">
               <Button variant="primary" className="flex-1 justify-center" onClick={confirmImport} disabled={busy}>
                 {busy ? 'Salvando...' : 'Confirmar importação'}
               </Button>
-              <Button variant="ghost" onClick={() => setPreview(null)} disabled={busy}>
+              <Button variant="ghost" onClick={() => { setPreview(null); setPendingFile(null) }} disabled={busy}>
                 Cancelar
               </Button>
             </div>
           </Card>
         )}
+
+        <Card className="p-4">
+          <CardTitle>Importações</CardTitle>
+          {imports.length === 0 ? (
+            <p className="text-[12.5px] text-text-faint py-3 text-center">Nenhuma fatura ou extrato importado ainda.</p>
+          ) : (
+            <div className="flex flex-col">
+              {imports.map((imp) => (
+                <div key={imp.id} className="flex items-center gap-2.5 py-2.5 border-b border-dashed border-border last:border-none">
+                  <div className="w-8 h-8 rounded-lg bg-surface-2 border border-border-strong flex items-center justify-center flex-shrink-0">
+                    <FileText size={14} className="text-text-faint" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] font-bold truncate">{imp.card_or_bank_label ?? imp.filename}</div>
+                    <div className="text-[11px] text-text-faint">
+                      {imp.entries_count} lançamentos{imp.total_amount ? ` · ${formatBRL(imp.total_amount)}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleView(imp)}
+                    disabled={rowBusyId === imp.id || !imp.storage_path}
+                    className="w-7 h-7 rounded-md border border-border-strong text-text-faint flex items-center justify-center flex-shrink-0 disabled:opacity-30"
+                    title={imp.storage_path ? 'Ver arquivo original' : 'Arquivo original não disponível'}
+                  >
+                    <Eye size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(imp)}
+                    disabled={rowBusyId === imp.id}
+                    className="w-7 h-7 rounded-md border border-negative/40 text-negative flex items-center justify-center flex-shrink-0 disabled:opacity-30"
+                    title="Excluir importação"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
 
         <div className="flex items-center gap-2 text-text-faint justify-center py-2">
           <FileText size={13} />
