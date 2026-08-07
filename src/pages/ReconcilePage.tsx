@@ -7,15 +7,21 @@ import { SplitEditor } from '../components/SplitEditor'
 import { useAccounts } from '../hooks/useAccounts'
 import { useEntries, type SplitInput } from '../hooks/useEntries'
 import { formatBRL, formatDateShort } from '../lib/format'
+import { isInvoicePaymentDescription } from '../lib/entryHelpers'
 
 export function ReconcilePage() {
   const { accounts } = useAccounts()
-  const { entries, classifyEntry, confirmEntry } = useEntries('importado')
+  const { entries: allEntries, classifyEntry, confirmEntry } = useEntries('importado')
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [openSplit, setOpenSplit] = useState<Set<string>>(new Set())
   const [draftSplits, setDraftSplits] = useState<Record<string, SplitInput[]>>({})
   const [bulkAccount, setBulkAccount] = useState('')
+
+  // Pagamento da fatura anterior não é lançamento pra categorizar — já
+  // entra confirmado na importação, então fica de fora da lista principal.
+  const paymentEntries = allEntries.filter((e) => e.type === 'receita' && isInvoicePaymentDescription(e.description))
+  const entries = allEntries.filter((e) => !(e.type === 'receita' && isInvoicePaymentDescription(e.description)))
 
   const despesasTotal = entries.filter((e) => e.type === 'despesa').reduce((s, e) => s + e.amount, 0)
   const creditosTotal = entries.filter((e) => e.type === 'receita').reduce((s, e) => s + e.amount, 0)
@@ -85,6 +91,19 @@ export function ReconcilePage() {
           <KpiCard label="A classificar" value={formatBRL(pendingAmount)} tone="warning" sub={`${pendingCount} pendentes`} />
           <KpiCard label="Total de lançamentos" value={String(entries.length)} />
         </div>
+
+        {paymentEntries.length > 0 && (
+          <Card className="p-3 mb-4 bg-surface-2">
+            {paymentEntries.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 text-[12px]">
+                <span className="text-text-muted">
+                  Pagamento da fatura anterior · {formatDateShort(p.date)} — já registrado, não precisa classificar
+                </span>
+                <span className="font-mono font-bold flex-shrink-0">{formatBRL(p.amount)}</span>
+              </div>
+            ))}
+          </Card>
+        )}
 
         <Card className="p-3">
           {entries.length === 0 ? (

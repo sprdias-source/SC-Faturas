@@ -4,6 +4,7 @@ import { useAuth } from './useAuth'
 import { useHousehold } from './useHousehold'
 import type { AccountType, Entry, EntryKind, EntrySplit } from '../lib/types'
 import type { OfxParsed } from '../lib/ofx'
+import { isInvoicePaymentDescription } from '../lib/entryHelpers'
 
 export interface SplitInput {
   account_id: string
@@ -142,6 +143,25 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
           continue
         }
         seenKeys.add(key)
+
+        // "Pagamento ..." = quitação da fatura anterior debitada em conta,
+        // não é receita pra categorizar — entra direto como confirmado,
+        // sem conta/rateio e sem tentar casar com um previsto.
+        if (e.isCredit && isInvoicePaymentDescription(e.description)) {
+          const { error: payErr } = await supabase.from('entries').insert({
+            household_id: household.id,
+            kind: 'importado',
+            date: e.date,
+            description: e.description,
+            amount: e.amount,
+            type: 'receita',
+            status: 'confirmado',
+            source_import_id: importRow.id,
+            created_by: user.id,
+          })
+          if (payErr) throw payErr
+          continue
+        }
 
         const { data: candidate } = await supabase
           .from('entries')
