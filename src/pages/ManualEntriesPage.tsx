@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, CardTitle, Field, Input, Pill, Select, Stamp, Switch } from '../components/ui'
 import { AccountSelect } from '../components/AccountSelect'
-import { SplitEditor } from '../components/SplitEditor'
+import { SplitEditor, defaultSplitFor } from '../components/SplitEditor'
 import { useAccounts } from '../hooks/useAccounts'
 import { useEntries, type SplitInput } from '../hooks/useEntries'
 import { formatBRL, formatDateShort, parseBRLInput, todayLocalISO } from '../lib/format'
@@ -27,9 +27,7 @@ export function ManualEntriesPage() {
   function toggleRateio(on: boolean) {
     setRateio(on)
     if (on && splits.length === 0 && accounts.length > 0) {
-      setSplits([
-        { account_id: accounts[0].id, percent: 100, amount },
-      ])
+      setSplits(defaultSplitFor(accounts, amount))
     }
   }
 

@@ -6,7 +6,7 @@ import { formatBRL, parseBRLInput } from '../lib/format'
 import type { Account } from '../lib/types'
 import type { SplitInput } from '../hooks/useEntries'
 
-function distributeEqually(accountIds: string[], total: number): SplitInput[] {
+export function distributeEqually(accountIds: string[], total: number): SplitInput[] {
   const n = accountIds.length
   if (n === 0) return []
   const pct = +(100 / n).toFixed(2)
@@ -17,6 +17,15 @@ function distributeEqually(accountIds: string[], total: number): SplitInput[] {
     const amount = isLast ? +(total - Math.round(((total * pct) / 100) * (n - 1) * 100) / 100).toFixed(2) : Math.round(((total * pct) / 100) * 100) / 100
     return { account_id, percent, amount }
   })
+}
+
+/** Ponto de partida ao abrir um rateio: com 2+ contas cadastradas, já
+ *  vem 50%/50% pré-fixado nas duas primeiras (o caso mais comum);
+ *  editar % ou R$ de qualquer linha depois continua livre, como sempre. */
+export function defaultSplitFor(accounts: Account[], total: number): SplitInput[] {
+  const ids = accounts.slice(0, 2).map((a) => a.id)
+  if (ids.length === 0) return []
+  return distributeEqually(ids, total)
 }
 
 export function SplitEditor({

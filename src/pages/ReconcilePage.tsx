@@ -3,7 +3,7 @@ import { Check, Percent } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, KpiCard, Pill } from '../components/ui'
 import { AccountSelect } from '../components/AccountSelect'
-import { SplitEditor } from '../components/SplitEditor'
+import { SplitEditor, defaultSplitFor } from '../components/SplitEditor'
 import { useAccounts } from '../hooks/useAccounts'
 import { useEntries, type SplitInput } from '../hooks/useEntries'
 import { formatBRL, formatDateShort } from '../lib/format'
@@ -51,7 +51,7 @@ export function ReconcilePage() {
         if (!draftSplits[entry.id]) {
           const initial = entry.entry_splits.length > 0
             ? entry.entry_splits.map((s) => ({ account_id: s.account_id, percent: s.percent, amount: s.amount }))
-            : [{ account_id: accounts[0]?.id ?? '', percent: 100, amount: entry.amount }]
+            : defaultSplitFor(accounts, entry.amount)
           setDraftSplits((d) => ({ ...d, [entry.id]: initial }))
         }
       }
@@ -77,7 +77,7 @@ export function ReconcilePage() {
   function openBulkSplit() {
     setBulkMode('split')
     if (bulkSplits.length === 0) {
-      setBulkSplits([{ account_id: accounts[0]?.id ?? '', percent: 100, amount: selectedTotal }])
+      setBulkSplits(defaultSplitFor(accounts, selectedTotal))
     }
   }
 
