@@ -7,7 +7,7 @@ import { SplitEditor } from '../components/SplitEditor'
 import { useAccounts } from '../hooks/useAccounts'
 import { useEntries, type SplitInput } from '../hooks/useEntries'
 import { formatBRL, formatDateShort } from '../lib/format'
-import { isInvoicePaymentDescription } from '../lib/entryHelpers'
+import { isBankAdjustmentDescription } from '../lib/entryHelpers'
 
 export function ReconcilePage() {
   const { accounts } = useAccounts()
@@ -18,10 +18,11 @@ export function ReconcilePage() {
   const [draftSplits, setDraftSplits] = useState<Record<string, SplitInput[]>>({})
   const [bulkAccount, setBulkAccount] = useState('')
 
-  // Pagamento da fatura anterior não é lançamento pra categorizar — já
-  // entra confirmado na importação, então fica de fora da lista principal.
-  const paymentEntries = allEntries.filter((e) => e.type === 'receita' && isInvoicePaymentDescription(e.description))
-  const entries = allEntries.filter((e) => !(e.type === 'receita' && isInvoicePaymentDescription(e.description)))
+  // Ajuste administrativo do banco (pagamento da fatura anterior, crédito
+  // de anuidade...) não é lançamento pra categorizar — já entra confirmado
+  // na importação, então fica de fora da lista principal.
+  const adjustmentEntries = allEntries.filter((e) => e.type === 'receita' && isBankAdjustmentDescription(e.description))
+  const entries = allEntries.filter((e) => !(e.type === 'receita' && isBankAdjustmentDescription(e.description)))
 
   const despesasTotal = entries.filter((e) => e.type === 'despesa').reduce((s, e) => s + e.amount, 0)
   const creditosTotal = entries.filter((e) => e.type === 'receita').reduce((s, e) => s + e.amount, 0)
@@ -92,12 +93,12 @@ export function ReconcilePage() {
           <KpiCard label="Total de lançamentos" value={String(entries.length)} />
         </div>
 
-        {paymentEntries.length > 0 && (
+        {adjustmentEntries.length > 0 && (
           <Card className="p-3 mb-4 bg-surface-2">
-            {paymentEntries.map((p) => (
+            {adjustmentEntries.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2 text-[12px]">
                 <span className="text-text-muted">
-                  Pagamento da fatura anterior · {formatDateShort(p.date)} — já registrado, não precisa classificar
+                  {p.description} · {formatDateShort(p.date)} — já registrado, não precisa classificar
                 </span>
                 <span className="font-mono font-bold flex-shrink-0">{formatBRL(p.amount)}</span>
               </div>
