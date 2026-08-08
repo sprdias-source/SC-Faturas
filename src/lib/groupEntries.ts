@@ -28,49 +28,85 @@ export interface YearGroup {
   despesasTotal: number
 }
 
-function sourceLabelFor(entry: EntryWithSplits, importsById: Map<string, Import>): { importId: string | null; label: string } {
-  if (!entry.source_import_id) return { importId: null, label: 'Sem fatura vinculada' }
-  const imp = importsById.get(entry.source_import_id)
-  return { importId: entry.source_import_id, label: imp?.card_or_bank_label ?? imp?.filename ?? 'Fatura removida' }
+function emptyMonthGroup(key: string): MonthGroup {
+  const [year, month] = key.split('-')
+  return {
+    key, year, month, monthName: monthLabel(month),
+    entries: [], adjustments: [], sources: [],
+    despesasTotal: 0, creditosTotal: 0, pendingCount: 0, pendingAmount: 0, total: 0,
+  }
+}
+
+function addEntryToGroup(group: MonthGroup, entry: EntryWithSplits) {
+  const isAdjustment = entry.type === 'receita' && isBankAdjustmentDescription(entry.description)
+  if (isAdjustment) {
+    group.adjustments.push(entry)
+    return
+  }
+  group.entries.push(entry)
+  group.total++
+  if (entry.type === 'despesa') group.despesasTotal += entry.amount
+  else group.creditosTotal += entry.amount
+  if (entry.status === 'pendente') {
+    group.pendingCount++
+    group.pendingAmount += entry.amount
+  }
+}
+
+/** A fatura inteira pertence a UMA competência (o mês do vencimento) — uma
+ *  fatura fechada em janeiro tem compras de dezembro, mas continua sendo
+ *  uma fatura só, e não pode se espalhar por dois meses na tela. Extrato
+ *  bancário (sem vencimento) usa o mês de quando foi importado. */
+function competenceKeyFor(importRow: Import | undefined, fallbackEntries: EntryWithSplits[]): string {
+  if (importRow?.due_date) return importRow.due_date.slice(0, 7)
+  if (importRow?.created_at) return importRow.created_at.slice(0, 7)
+  const latest = fallbackEntries.reduce((max, e) => (e.date > max ? e.date : max), fallbackEntries[0]?.date ?? '')
+  return latest.slice(0, 7) || 'sem-data'
 }
 
 export function groupEntriesByYearMonth(entries: EntryWithSplits[], imports: Import[]): YearGroup[] {
   const importsById = new Map(imports.map((i) => [i.id, i]))
   const monthMap = new Map<string, MonthGroup>()
 
+  const entriesByImport = new Map<string, EntryWithSplits[]>()
+  const entriesWithoutImport: EntryWithSplits[] = []
   for (const entry of entries) {
-    const year = entry.date.slice(0, 4)
-    const month = entry.date.slice(5, 7)
-    const key = `${year}-${month}`
-
-    if (!monthMap.has(key)) {
-      monthMap.set(key, {
-        key, year, month, monthName: monthLabel(month),
-        entries: [], adjustments: [], sources: [],
-        despesasTotal: 0, creditosTotal: 0, pendingCount: 0, pendingAmount: 0, total: 0,
-      })
+    if (entry.source_import_id) {
+      if (!entriesByImport.has(entry.source_import_id)) entriesByImport.set(entry.source_import_id, [])
+      entriesByImport.get(entry.source_import_id)!.push(entry)
+    } else {
+      entriesWithoutImport.push(entry)
     }
+  }
+
+  // cada fatura inteira cai numa competência só
+  for (const [importId, importEntries] of entriesByImport) {
+    const importRow = importsById.get(importId)
+    const key = competenceKeyFor(importRow, importEntries)
+    if (!monthMap.has(key)) monthMap.set(key, emptyMonthGroup(key))
     const group = monthMap.get(key)!
-    const isAdjustment = entry.type === 'receita' && isBankAdjustmentDescription(entry.description)
 
-    if (isAdjustment) {
-      group.adjustments.push(entry)
-      continue
+    group.sources.push({
+      importId,
+      label: importRow?.card_or_bank_label ?? importRow?.filename ?? 'Fatura removida',
+      count: importEntries.length,
+    })
+    for (const entry of importEntries) addEntryToGroup(group, entry)
+  }
+
+  // lançamentos sem fatura vinculada (ex.: previsto confirmado direto, ou
+  // a fatura de origem foi excluída) — só o que sobra pra agrupar pela
+  // própria data, já que não existe uma competência pra seguir.
+  for (const entry of entriesWithoutImport) {
+    const key = entry.date.slice(0, 7)
+    if (!monthMap.has(key)) monthMap.set(key, emptyMonthGroup(key))
+    const group = monthMap.get(key)!
+    if (!group.sources.some((s) => s.importId === null)) {
+      group.sources.push({ importId: null, label: 'Sem fatura vinculada', count: 0 })
     }
-
-    group.entries.push(entry)
-    group.total++
-    if (entry.type === 'despesa') group.despesasTotal += entry.amount
-    else group.creditosTotal += entry.amount
-    if (entry.status === 'pendente') {
-      group.pendingCount++
-      group.pendingAmount += entry.amount
-    }
-
-    const { importId, label } = sourceLabelFor(entry, importsById)
-    const existingSource = group.sources.find((s) => s.importId === importId)
-    if (existingSource) existingSource.count++
-    else group.sources.push({ importId, label, count: 1 })
+    const noImportSource = group.sources.find((s) => s.importId === null)!
+    noImportSource.count++
+    addEntryToGroup(group, entry)
   }
 
   const yearMap = new Map<string, MonthGroup[]>()
