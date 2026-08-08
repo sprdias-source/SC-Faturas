@@ -26,6 +26,16 @@ export function todayLocalISO(): string {
   return `${y}-${m}-${d}`
 }
 
+const MONTH_NAMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+
+/** "01" -> "Janeiro" */
+export function monthLabel(monthTwoDigits: string): string {
+  return MONTH_NAMES[parseInt(monthTwoDigits, 10) - 1] ?? monthTwoDigits
+}
+
 export function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diffMs / 60000)
