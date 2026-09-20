@@ -1,9 +1,10 @@
-import { Navigate, Route, HashRouter, Routes } from 'react-router-dom'
+import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { isSupabaseConfigured } from './lib/supabase'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { HouseholdProvider, useHousehold } from './hooks/useHousehold'
 import { ActivityToastProvider } from './hooks/useActivityToasts'
 import { AuthPage } from './pages/AuthPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { HouseholdSetupPage } from './pages/HouseholdSetupPage'
 import { ImportPage } from './pages/ImportPage'
 import { ManualEntriesPage } from './pages/ManualEntriesPage'
@@ -68,10 +69,17 @@ function Gate() {
 export default function App() {
   if (!isSupabaseConfigured) return <ConfigMissingScreen />
   return (
-    <HashRouter>
+    <BrowserRouter>
       <AuthProvider>
-        <Gate />
+        <Routes>
+          {/* Fora do Gate de propósito: o link de e-mail já cria uma sessão
+              temporária de recuperação, então o Gate acharia que é um
+              login normal e pularia direto pro app — aqui sempre mostra
+              a troca de senha, esteja "logado" ou não. */}
+          <Route path="/reset-senha" element={<ResetPasswordPage />} />
+          <Route path="/*" element={<Gate />} />
+        </Routes>
       </AuthProvider>
-    </HashRouter>
+    </BrowserRouter>
   )
 }

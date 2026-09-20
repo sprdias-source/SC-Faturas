@@ -27,6 +27,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // rota "de verdade" agora (não mais #hash) — sem isso, o service
+        // worker não sabe servir index.html pra um caminho como /conciliar
+        navigateFallback: '/index.html',
       },
     }),
   ],
