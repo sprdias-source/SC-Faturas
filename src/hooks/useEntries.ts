@@ -109,14 +109,34 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
       parsed: OfxParsed,
       originalFile?: File | null
     ) => {
-      if (!household || !user) return { importedCount: 0, matchedCount: 0, skippedCount: 0 }
+      if (!household || !user) return { importedCount: 0, matchedCount: 0 }
+
+      // Bloqueia reimportar a MESMA fatura/extrato — nunca deixa passar
+      // silenciosamente pra não duplicar o arquivo inteiro. Fatura de
+      // cartão identifica pelo vencimento (é o dado mais estável entre
+      // dois PDFs do mesmo período); sem vencimento (extrato OFX), usa o
+      // nome do arquivo como impressão digital.
+      const label = meta.cardOrBankLabel ?? parsed.bankLabel
+      let dupQuery = supabase.from('imports').select('id, filename, due_date, card_or_bank_label, entries_count, created_at').eq('household_id', household.id)
+      dupQuery = meta.dueDate ? dupQuery.eq('due_date', meta.dueDate) : dupQuery.eq('filename', meta.filename)
+      const { data: possibleDupes } = await dupQuery
+      const dupe = meta.dueDate
+        ? possibleDupes?.find((i) => (i.card_or_bank_label ?? '') === (label ?? '') || i.filename === meta.filename)
+        : possibleDupes?.[0]
+      if (dupe) {
+        const when = new Date(dupe.created_at).toLocaleDateString('pt-BR')
+        throw new Error(
+          `Essa fatura já foi importada em ${when} ("${dupe.filename}", ${dupe.entries_count} lançamentos${dupe.due_date ? `, vencimento ${new Date(dupe.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}). Exclua a importação antiga em "Importações" antes de importar de novo, se quiser substituir.`
+        )
+      }
+
       const { data: importRow, error: impErr } = await supabase
         .from('imports')
         .insert({
           household_id: household.id,
           filename: meta.filename,
           file_type: meta.fileType,
-          card_or_bank_label: meta.cardOrBankLabel ?? parsed.bankLabel,
+          card_or_bank_label: label,
           due_date: meta.dueDate,
           total_amount: parsed.totalAmount,
           entries_count: parsed.entries.length,
@@ -137,28 +157,13 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
         if (!upErr) await supabase.from('imports').update({ storage_path: path }).eq('id', importRow.id)
       }
 
-      // Dedup: mesma data + valor + descrição já importado antes (ex.: o
-      // mesmo arquivo enviado de novo) não gera lançamento duplicado.
-      const dates = parsed.entries.map((e) => e.date).sort()
-      const { data: existing } = await supabase
-        .from('entries')
-        .select('date, amount, description')
-        .eq('household_id', household.id)
-        .eq('kind', 'importado')
-        .gte('date', dates[0])
-        .lte('date', dates[dates.length - 1])
-      const seenKeys = new Set((existing ?? []).map((e) => `${e.date}|${e.amount}|${e.description}`))
-
+      // Cada linha do arquivo é única daquela fatura por definição — duas
+      // compras reais podem ter data+valor+descrição iguais (dois cafés
+      // no mesmo lugar no mesmo dia), então NÃO comparamos lançamento
+      // com lançamento aqui. A proteção contra duplicata é só a checagem
+      // de fatura já importada, acima.
       let matchedCount = 0
-      let skippedCount = 0
       for (const e of parsed.entries) {
-        const key = `${e.date}|${e.amount}|${e.description}`
-        if (seenKeys.has(key)) {
-          skippedCount++
-          continue
-        }
-        seenKeys.add(key)
-
         // "Pagamento ..." = quitação da fatura anterior debitada em conta,
         // não é receita pra categorizar — entra direto como confirmado,
         // sem conta/rateio e sem tentar casar com um previsto.
@@ -215,15 +220,15 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
         }
       }
 
-      const importedCount = parsed.entries.length - skippedCount
+      const importedCount = parsed.entries.length
       await logActivity(
         household.id,
         user.id,
         'imported_file',
-        `importou "${meta.filename}" — ${importedCount} lançamentos${matchedCount ? `, ${matchedCount} já casaram com previstos` : ''}${skippedCount ? `, ${skippedCount} ignorados por já existirem` : ''}`
+        `importou "${meta.filename}" — ${importedCount} lançamentos${matchedCount ? `, ${matchedCount} já casaram com previstos` : ''}`
       )
 
-      return { importedCount, matchedCount, skippedCount }
+      return { importedCount, matchedCount }
     },
     [household, user]
   )

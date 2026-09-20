@@ -30,7 +30,7 @@ export function ImportPage() {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(() => loadStoredPreview())
   const [pendingFile, setPendingFile] = useState<File | null>(null)
-  const [result, setResult] = useState<{ importedCount: number; matchedCount: number; skippedCount: number } | null>(null)
+  const [result, setResult] = useState<{ importedCount: number; matchedCount: number } | null>(null)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
 
   // Guarda a prévia lida enquanto ela não é confirmada — trocar de aba,
@@ -156,9 +156,8 @@ export function ImportPage() {
           )}
           {result && (
             <div className="mt-3 text-[12.5px] text-positive bg-positive-soft border border-positive/30 rounded-lg p-3">
-              Importado! {result.importedCount} lançamento{result.importedCount === 1 ? '' : 's'} novo{result.importedCount === 1 ? '' : 's'}
+              Importado! {result.importedCount} lançamento{result.importedCount === 1 ? '' : 's'}
               {result.matchedCount > 0 && `, ${result.matchedCount} já casou com previsto`}
-              {result.skippedCount > 0 && ` · ${result.skippedCount} ignorado${result.skippedCount === 1 ? '' : 's'} por já existir (mesma data/valor/descrição)`}
               . Vá em "Conciliar" pra revisar e classificar.
             </div>
           )}
