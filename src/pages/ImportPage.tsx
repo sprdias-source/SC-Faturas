@@ -5,7 +5,7 @@ import { Button, Card, CardTitle, Pill } from '../components/ui'
 import { useEntries } from '../hooks/useEntries'
 import { useImports } from '../hooks/useImports'
 import { parseOFX, type OfxParsed } from '../lib/ofx'
-import { formatBRL } from '../lib/format'
+import { formatBRL, formatDateFull } from '../lib/format'
 import { getErrorMessage } from '../lib/errors'
 import type { Import } from '../lib/types'
 
@@ -244,6 +244,8 @@ export function ImportPage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-[12.5px] font-bold truncate">{imp.card_or_bank_label ?? imp.filename}</div>
                     <div className="text-[11px] text-text-faint">
+                      {imp.due_date && <span className="font-bold text-text-muted">Venc. {formatDateFull(imp.due_date)}</span>}
+                      {imp.due_date && ' · '}
                       {imp.entries_count} lançamentos{imp.total_amount ? ` · ${formatBRL(imp.total_amount)}` : ''}
                     </div>
                   </div>

@@ -21,6 +21,7 @@ export function useImports() {
       .from('imports')
       .select('*')
       .eq('household_id', household.id)
+      .order('due_date', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
     setImports((data ?? []) as Import[])
     setLoading(false)
