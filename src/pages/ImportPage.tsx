@@ -1,93 +1,99 @@
-import { useEffect, useRef, useState } from 'react'
-import { Upload, FileText, AlertTriangle, Eye, Trash2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Upload, FileText, AlertTriangle, Eye, Trash2, X, Check, Loader2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, CardTitle, Pill } from '../components/ui'
 import { useEntries } from '../hooks/useEntries'
 import { useImports } from '../hooks/useImports'
 import { parseOFX, type OfxParsed } from '../lib/ofx'
-import { formatBRL, formatDateFull } from '../lib/format'
+import { formatBRL } from '../lib/format'
 import { getErrorMessage } from '../lib/errors'
 import type { Import } from '../lib/types'
 
-type Preview = { filename: string; fileType: 'pdf' | 'ofx'; parsed: OfxParsed }
-
-const PREVIEW_STORAGE_KEY = 'confere:import-preview'
-
-function loadStoredPreview(): Preview | null {
-  try {
-    const raw = localStorage.getItem(PREVIEW_STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Preview) : null
-  } catch {
-    return null
-  }
+interface BatchItem {
+  id: string
+  file: File
+  filename: string
+  fileType: 'pdf' | 'ofx'
+  status: 'reading' | 'ready' | 'parse-error' | 'importing' | 'done' | 'import-error'
+  parsed?: OfxParsed
+  error?: string
+  result?: { importedCount: number; matchedCount: number }
 }
+
+let nextId = 0
 
 export function ImportPage() {
   const { importFile } = useEntries()
   const { imports, viewImport, deleteImport } = useImports()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<Preview | null>(() => loadStoredPreview())
-  const [pendingFile, setPendingFile] = useState<File | null>(null)
-  const [result, setResult] = useState<{ importedCount: number; matchedCount: number } | null>(null)
+  const [items, setItems] = useState<BatchItem[]>([])
+  const [confirming, setConfirming] = useState(false)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
 
-  // Guarda a prévia lida enquanto ela não é confirmada — trocar de aba,
-  // a PWA atualizar sozinha em segundo plano, ou o navegador descartar a
-  // aba não pode fazer você reimportar o arquivo do zero. O File original
-  // não persiste aqui (não dá pra guardar em localStorage) — some se a
-  // página recarregar antes de confirmar, mas os dados lidos continuam.
-  useEffect(() => {
-    if (preview) localStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(preview))
-    else localStorage.removeItem(PREVIEW_STORAGE_KEY)
-  }, [preview])
+  function updateItem(id: string, patch: Partial<BatchItem>) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
+  }
 
-  async function handleFile(file: File) {
-    setError(null)
-    setResult(null)
-    setBusy(true)
+  async function parseOne(item: BatchItem) {
     try {
-      const isOfx = /\.ofx$/i.test(file.name)
-      const isPdf = /\.pdf$/i.test(file.name)
-      if (!isOfx && !isPdf) throw new Error('Envie um arquivo .OFX ou .PDF.')
-
-      if (isOfx) {
-        const text = await file.text()
+      if (item.fileType === 'ofx') {
+        const text = await item.file.text()
         const parsed = parseOFX(text)
-        if (parsed.entries.length === 0) throw new Error('Não consegui achar lançamentos nesse OFX.')
-        setPreview({ filename: file.name, fileType: 'ofx', parsed })
+        if (parsed.entries.length === 0) throw new Error('Não achei lançamentos nesse OFX.')
+        updateItem(item.id, { status: 'ready', parsed })
       } else {
         const { parsePdfEntries } = await import('../lib/pdf')
-        const parsed = await parsePdfEntries(file)
-        if (parsed.entries.length === 0) throw new Error('Não consegui reconhecer linhas de lançamento nesse PDF — o layout pode ser diferente do esperado.')
-        setPreview({ filename: file.name, fileType: 'pdf', parsed })
+        const parsed = await parsePdfEntries(item.file)
+        if (parsed.entries.length === 0) throw new Error('Não reconheci linhas de lançamento nesse PDF.')
+        updateItem(item.id, { status: 'ready', parsed })
       }
-      setPendingFile(file)
     } catch (err) {
-      setError(getErrorMessage(err, 'Não consegui ler esse arquivo.'))
-    } finally {
-      setBusy(false)
+      updateItem(item.id, { status: 'parse-error', error: getErrorMessage(err, 'Não consegui ler esse arquivo.') })
     }
   }
 
-  async function confirmImport() {
-    if (!preview) return
-    setBusy(true)
-    try {
-      const summary = await importFile(
-        { filename: preview.filename, fileType: preview.fileType, cardOrBankLabel: preview.parsed.bankLabel, dueDate: preview.parsed.dueDate },
-        preview.parsed,
-        pendingFile
-      )
-      setResult(summary)
-      setPreview(null)
-      setPendingFile(null)
-    } catch (err) {
-      setError(getErrorMessage(err, 'Não consegui salvar os lançamentos.'))
-    } finally {
-      setBusy(false)
+  function handleFiles(files: FileList) {
+    setListError(null)
+    const accepted: BatchItem[] = []
+    for (const file of Array.from(files)) {
+      const isOfx = /\.ofx$/i.test(file.name)
+      const isPdf = /\.pdf$/i.test(file.name)
+      if (!isOfx && !isPdf) continue
+      accepted.push({ id: String(nextId++), file, filename: file.name, fileType: isOfx ? 'ofx' : 'pdf', status: 'reading' })
     }
+    if (accepted.length === 0) {
+      setListError('Nenhum arquivo .OFX ou .PDF selecionado.')
+      return
+    }
+    setItems((prev) => [...prev, ...accepted])
+    accepted.forEach(parseOne)
+  }
+
+  function removeItem(id: string) {
+    setItems((prev) => prev.filter((it) => it.id !== id))
+  }
+
+  async function confirmAll() {
+    setConfirming(true)
+    // Um de cada vez — mantém a barra de progresso legível e evita que a
+    // checagem de "fatura já importada" de dois arquivos corra em paralelo.
+    for (const item of items) {
+      if (item.status !== 'ready') continue
+      updateItem(item.id, { status: 'importing' })
+      try {
+        const parsed = item.parsed!
+        const result = await importFile(
+          { filename: item.filename, fileType: item.fileType, cardOrBankLabel: parsed.bankLabel, dueDate: parsed.dueDate },
+          parsed,
+          item.file
+        )
+        updateItem(item.id, { status: 'done', result })
+      } catch (err) {
+        updateItem(item.id, { status: 'import-error', error: getErrorMessage(err, 'Não consegui salvar esse arquivo.') })
+      }
+    }
+    setConfirming(false)
   }
 
   async function handleView(imp: Import) {
@@ -95,7 +101,7 @@ export function ImportPage() {
     try {
       await viewImport(imp)
     } catch (err) {
-      setError(getErrorMessage(err, 'Não consegui abrir esse arquivo.'))
+      setListError(getErrorMessage(err, 'Não consegui abrir esse arquivo.'))
     } finally {
       setRowBusyId(null)
     }
@@ -107,15 +113,20 @@ export function ImportPage() {
     try {
       await deleteImport(imp)
     } catch (err) {
-      setError(getErrorMessage(err, 'Não consegui excluir essa importação.'))
+      setListError(getErrorMessage(err, 'Não consegui excluir essa importação.'))
     } finally {
       setRowBusyId(null)
     }
   }
 
+  const readyCount = items.filter((i) => i.status === 'ready').length
+  const doneCount = items.filter((i) => i.status === 'done').length
+  const anyPending = items.some((i) => i.status === 'reading')
+  const finishedBatch = items.length > 0 && items.every((i) => i.status === 'done' || i.status === 'import-error')
+
   return (
     <div className="pb-24">
-      <TopBar title="Importar fatura ou extrato" subtitle="PDF do banco/cartão, ou o arquivo OFX" />
+      <TopBar title="Importar fatura ou extrato" subtitle="PDF do banco/cartão, ou o arquivo OFX — pode selecionar vários de uma vez" />
 
       <div className="px-4 flex flex-col gap-4">
         <Card className="p-5">
@@ -126,83 +137,96 @@ export function ImportPage() {
             <div className="w-11 h-11 rounded-xl bg-accent-soft flex items-center justify-center">
               <Upload size={20} className="text-accent-strong" />
             </div>
-            <strong className="font-display text-[14.5px]">Toque pra escolher o arquivo</strong>
-            <span className="text-[12px] text-text-faint max-w-[260px]">PDF baixado do app do banco/cartão, ou o OFX exportado do internet banking.</span>
+            <strong className="font-display text-[14.5px]">Toque pra escolher os arquivos</strong>
+            <span className="text-[12px] text-text-faint max-w-[260px]">PDF baixado do app do banco/cartão, ou o OFX exportado do internet banking. Pode marcar vários arquivos de uma vez.</span>
             <div className="flex gap-1.5 mt-1">
               <Pill tone="neutral">.PDF</Pill>
               <Pill tone="neutral">.OFX</Pill>
             </div>
-            <Button variant="primary" className="mt-2" disabled={busy}>
-              {busy ? 'Lendo...' : 'Selecionar arquivo'}
+            <Button variant="primary" className="mt-2">
+              Selecionar arquivos
             </Button>
           </div>
           <input
             ref={fileInputRef}
             type="file"
             accept=".ofx,.pdf"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) handleFile(f)
+              if (e.target.files && e.target.files.length > 0) handleFiles(e.target.files)
               e.target.value = ''
             }}
           />
 
-          {error && (
+          {listError && (
             <div className="mt-3 flex items-start gap-2 text-[12px] text-negative bg-negative-soft border border-negative/30 rounded-lg p-3">
               <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-              {error}
-            </div>
-          )}
-          {result && (
-            <div className="mt-3 text-[12.5px] text-positive bg-positive-soft border border-positive/30 rounded-lg p-3">
-              Importado! {result.importedCount} lançamento{result.importedCount === 1 ? '' : 's'}
-              {result.matchedCount > 0 && `, ${result.matchedCount} já casou com previsto`}
-              . Vá em "Conciliar" pra revisar e classificar.
+              {listError}
             </div>
           )}
 
           <p className="text-[11.5px] text-text-faint leading-relaxed mt-3">
             No OFX, data/valor/identificador já vêm estruturados — a leitura é confiável. No PDF a extração é por
             reconhecimento de texto (data + valor na mesma linha) e pode errar dependendo do layout do banco — sempre
-            revise na tela de conciliação.
+            revise na tela de conciliação. Uma fatura com o mesmo vencimento (ou arquivo com o mesmo nome) já
+            importada antes é recusada automaticamente, pra nunca duplicar.
           </p>
         </Card>
 
-        {preview && (
+        {items.length > 0 && (
           <Card className="p-4 border-accent border-[1.5px]">
-            <CardTitle>Prévia da leitura — {preview.filename}</CardTitle>
-            <div className="grid grid-cols-2 gap-2.5 mb-3">
-              <div className="rounded-lg bg-surface-2 border border-border p-2.5">
-                <div className="text-[10px] font-bold uppercase text-text-faint">Lançamentos lidos</div>
-                <div className="text-[14px] font-bold">{preview.parsed.entries.length}</div>
-              </div>
-              <div className="rounded-lg bg-surface-2 border border-border p-2.5">
-                <div className="text-[10px] font-bold uppercase text-text-faint">Total do arquivo</div>
-                <div className="text-[14px] font-bold font-mono">{preview.parsed.totalAmount ? formatBRL(preview.parsed.totalAmount) : '—'}</div>
-              </div>
-            </div>
-            <div className="max-h-52 overflow-y-auto flex flex-col gap-1.5 mb-3">
-              {preview.parsed.entries.slice(0, 8).map((e, i) => (
-                <div key={i} className="flex items-center justify-between text-[12px] gap-2">
-                  <span className="text-text-faint flex-shrink-0 font-mono">{formatDateFull(e.date).slice(0, 5)}</span>
-                  <span className="truncate flex-1">{e.description}</span>
-                  <span className={`font-mono flex-shrink-0 ${e.isCredit ? 'text-positive' : ''}`}>{e.isCredit ? '+ ' : ''}{formatBRL(e.amount)}</span>
+            <CardTitle tag={`${items.length} arquivo${items.length === 1 ? '' : 's'}`}>Fila de importação</CardTitle>
+
+            <div className="flex flex-col gap-2 mb-3">
+              {items.map((item) => (
+                <div key={item.id} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-surface-2 border border-border">
+                  <div className="w-7 h-7 rounded-md bg-surface border border-border-strong flex items-center justify-center flex-shrink-0">
+                    {item.status === 'reading' || item.status === 'importing' ? (
+                      <Loader2 size={13} className="text-text-faint animate-spin" />
+                    ) : item.status === 'done' ? (
+                      <Check size={13} className="text-positive" />
+                    ) : item.status === 'ready' ? (
+                      <FileText size={13} className="text-text-faint" />
+                    ) : (
+                      <AlertTriangle size={13} className="text-negative" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-bold truncate">{item.filename}</div>
+                    {item.status === 'reading' && <div className="text-[10.5px] text-text-faint">Lendo...</div>}
+                    {item.status === 'ready' && item.parsed && (
+                      <div className="text-[10.5px] text-text-faint">
+                        {item.parsed.entries.length} lançamentos{item.parsed.totalAmount ? ` · ${formatBRL(item.parsed.totalAmount)}` : ''}
+                        {item.parsed.dueDate && ` · venc. ${item.parsed.dueDate.split('-').reverse().join('/')}`}
+                      </div>
+                    )}
+                    {item.status === 'importing' && <div className="text-[10.5px] text-text-faint">Salvando...</div>}
+                    {item.status === 'done' && item.result && (
+                      <div className="text-[10.5px] text-positive">
+                        {item.result.importedCount} lançamentos importados{item.result.matchedCount > 0 && `, ${item.result.matchedCount} casaram com previsto`}
+                      </div>
+                    )}
+                    {(item.status === 'parse-error' || item.status === 'import-error') && <div className="text-[10.5px] text-negative">{item.error}</div>}
+                  </div>
+                  {(item.status === 'ready' || item.status === 'parse-error' || item.status === 'import-error') && (
+                    <button onClick={() => removeItem(item.id)} className="w-6 h-6 rounded-md text-text-faint hover:text-negative flex items-center justify-center flex-shrink-0" title="Remover da fila">
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
               ))}
-              {preview.parsed.entries.length > 8 && <span className="text-[11px] text-text-faint">+ {preview.parsed.entries.length - 8} outros...</span>}
             </div>
-            {!pendingFile && (
-              <p className="text-[11px] text-warning mb-2">A página recarregou desde que você leu esse arquivo — vai importar os lançamentos normalmente, mas sem guardar o arquivo original pra visualizar depois.</p>
+
+            {finishedBatch ? (
+              <Button variant="ghost" className="w-full justify-center" onClick={() => setItems([])}>
+                Limpar fila ({doneCount} importado{doneCount === 1 ? '' : 's'})
+              </Button>
+            ) : (
+              <Button variant="primary" className="w-full justify-center" onClick={confirmAll} disabled={confirming || anyPending || readyCount === 0}>
+                {confirming ? 'Importando...' : anyPending ? 'Lendo arquivos...' : `Confirmar ${readyCount} importaç${readyCount === 1 ? 'ão' : 'ões'}`}
+              </Button>
             )}
-            <div className="flex gap-2">
-              <Button variant="primary" className="flex-1 justify-center" onClick={confirmImport} disabled={busy}>
-                {busy ? 'Salvando...' : 'Confirmar importação'}
-              </Button>
-              <Button variant="ghost" onClick={() => { setPreview(null); setPendingFile(null) }} disabled={busy}>
-                Cancelar
-              </Button>
-            </div>
           </Card>
         )}
 
