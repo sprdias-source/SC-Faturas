@@ -20,6 +20,28 @@ async function logActivity(householdId: string, userId: string, action: string, 
   await supabase.from('activity_log').insert({ household_id: householdId, user_id: userId, action, detail })
 }
 
+// O Supabase/PostgREST corta silenciosamente qualquer select em 1000 linhas
+// por padrão — sem paginar, uma vez que a casa passa de 1000 lançamentos no
+// total, os mais antigos (ordenados por data desc) somem da tela sem erro
+// nenhum. Foi exatamente isso que fez dezembro "desaparecer" depois de
+// importar várias faturas de uma vez. `fetchPage` recebe from/to e devolve
+// uma query nova a cada chamada (o builder do supabase-js não pode ser
+// reusado depois de um await).
+async function fetchAllRows<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const pageSize = 1000
+  let offset = 0
+  const all: T[] = []
+  for (;;) {
+    const { data, error } = await fetchPage(offset, offset + pageSize - 1)
+    if (error) throw error
+    const batch = data ?? []
+    all.push(...batch)
+    if (batch.length < pageSize) break
+    offset += batch.length
+  }
+  return all
+}
+
 async function saveSplits(entryId: string, splits: SplitInput[]) {
   await supabase.from('entry_splits').delete().eq('entry_id', entryId)
   if (splits.length === 0) return
@@ -42,14 +64,18 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
       return
     }
     setLoading(true)
-    let query = supabase
-      .from('entries')
-      .select('*, entry_splits(*)')
-      .eq('household_id', household.id)
-      .order('date', { ascending: false })
-    if (kind !== 'todos') query = query.eq('kind', kind)
-    const { data } = await query
-    setEntries((data ?? []) as EntryWithSplits[])
+    const rows = await fetchAllRows<EntryWithSplits>((from, to) => {
+      let query = supabase
+        .from('entries')
+        .select('*, entry_splits(*)')
+        .eq('household_id', household.id)
+        .order('date', { ascending: false })
+        .order('id', { ascending: true }) // desempate estável — sem isso, duas páginas seguidas podem devolver a mesma linha 2x (ou pular alguma) quando várias datas empatam
+        .range(from, to)
+      if (kind !== 'todos') query = query.eq('kind', kind)
+      return query
+    })
+    setEntries(rows)
     setLoading(false)
   }, [household, kind])
 
