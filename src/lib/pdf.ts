@@ -19,6 +19,7 @@ const FULL_DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/
 const DUE_DATE_RE = new RegExp(`Vencimento\\s+(\\d{1,2})\\/(${MONTH_NAMES})`, 'i')
 const TOTAL_RE = /Total\s+desta\s+Fatura\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})/i
 const CARD_LABEL_RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ ]{2,30}final\s+\d{4})/
+const SUBTOTAL_ENCARGOS_RE = /Subtotal\s+Encargos\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})/i
 
 function parseValue(raw: string): number {
   const isNegative = raw.trim().startsWith('-')
@@ -88,7 +89,8 @@ export async function parsePdfEntries(file: File): Promise<OfxParsed> {
   }
 
   const entries: OfxParsed['entries'] = []
-  for (const line of allLines) {
+  for (let i = 0; i < allLines.length; i++) {
+    const line = allLines[i]
     const dateMatch = line.match(DATE_RE)
     const valueMatch = line.match(VALUE_RE)
     if (!dateMatch || !valueMatch) continue
@@ -96,13 +98,32 @@ export async function parsePdfEntries(file: File): Promise<OfxParsed> {
     const signedAmount = parseValue(valueMatch[1])
     if (isNaN(signedAmount) || signedAmount === 0) continue
 
-    const description = line
+    let description = line
       .replace(dateMatch[0], '')
       .replace(valueMatch[0], '')
       .replace(/\b\d{1,2}\/\d{2}\b/, '') // marcador de parcela, ex. "01/03"
       .replace(/\d{1,2}:\d{2}/, '') // horário
       .replace(/\s+/g, ' ')
       .trim()
+
+    // Descrições longas quebram em duas linhas ao redor da linha de
+    // data+valor (ex.: "Est Compra Fraude Na-" / "07/ago 21:40 -R$ 395,98" /
+    // "cional") — sem isso a linha do meio fica sem descrição e é
+    // descartada, perdendo o lançamento inteiro (já vimos isso derrubar
+    // estornos e a cobrança de "Anuidade Diferenc").
+    if (description.length === 0) {
+      const isFiller = (l: string | undefined) => !!l && l.length > 0 && l.length < 60 && !DATE_RE.test(l) && !VALUE_RE.test(l)
+      const before = isFiller(allLines[i - 1]) ? allLines[i - 1] : ''
+      const after = isFiller(allLines[i + 1]) ? allLines[i + 1] : ''
+      description = [before, after]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/-\s+/g, '') // junta palavra hifenizada quebrada entre linhas
+        .replace(/\b\d{1,2}\/\d{2}\b/, '')
+        .replace(/\d{1,2}:\d{2}/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
     if (description.length < 2) continue
 
     entries.push({
@@ -112,6 +133,26 @@ export async function parsePdfEntries(file: File): Promise<OfxParsed> {
       isCredit: signedAmount < 0,
     })
   }
+
+  // Encargos financeiros (juros rotativo, IOF etc.) quando o cliente usa o
+  // crédito rotativo: aparecem só como um resumo no rodapé, sem nenhuma
+  // linha de transação com data própria — sem isso o total da fatura nunca
+  // fecha com a soma dos lançamentos nesses meses.
+  const encargosMatch = fullText.match(SUBTOTAL_ENCARGOS_RE)
+  const encargosAmount = encargosMatch ? parseBRLNumber(encargosMatch[1]) : 0
+  if (encargosAmount > 0) {
+    const dueMatchForEncargos = fullText.match(DUE_DATE_RE)
+    const encargosDate = dueMatchForEncargos ? toISO(dueMatchForEncargos[1], dueMatchForEncargos[2]) : null
+    if (encargosDate) {
+      entries.push({
+        date: encargosDate,
+        description: 'Encargos financeiros (juros rotativo, IOF)',
+        amount: encargosAmount,
+        isCredit: false,
+      })
+    }
+  }
+
   entries.sort((a, b) => a.date.localeCompare(b.date))
 
   const dueMatch = fullText.match(DUE_DATE_RE)
