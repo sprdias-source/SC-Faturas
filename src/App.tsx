@@ -3,6 +3,7 @@ import { isSupabaseConfigured } from './lib/supabase'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { HouseholdProvider, useHousehold } from './hooks/useHousehold'
 import { ActivityToastProvider } from './hooks/useActivityToasts'
+import { ImportQueueProvider } from './hooks/useImportQueue'
 import { AuthPage } from './pages/AuthPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { HouseholdSetupPage } from './pages/HouseholdSetupPage'
@@ -40,17 +41,19 @@ function AppShell() {
 
   return (
     <ActivityToastProvider>
-      <Routes>
-        <Route path="/" element={<Navigate to="/importar" replace />} />
-        <Route path="/importar" element={<ImportPage />} />
-        <Route path="/manuais" element={<ManualEntriesPage />} />
-        <Route path="/conciliar" element={<ReconcilePage />} />
-        <Route path="/contas" element={<AccountsPage />} />
-        <Route path="/resumo" element={<SummaryPage />} />
-        <Route path="*" element={<Navigate to="/importar" replace />} />
-      </Routes>
-      <ToastStack />
-      <BottomNav />
+      <ImportQueueProvider>
+        <Routes>
+          <Route path="/" element={<Navigate to="/importar" replace />} />
+          <Route path="/importar" element={<ImportPage />} />
+          <Route path="/manuais" element={<ManualEntriesPage />} />
+          <Route path="/conciliar" element={<ReconcilePage />} />
+          <Route path="/contas" element={<AccountsPage />} />
+          <Route path="/resumo" element={<SummaryPage />} />
+          <Route path="*" element={<Navigate to="/importar" replace />} />
+        </Routes>
+        <ToastStack />
+        <BottomNav />
+      </ImportQueueProvider>
     </ActivityToastProvider>
   )
 }

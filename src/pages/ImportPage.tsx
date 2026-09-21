@@ -2,98 +2,27 @@ import { useRef, useState } from 'react'
 import { Upload, FileText, AlertTriangle, Eye, Trash2, X, Check, Loader2 } from 'lucide-react'
 import { TopBar } from '../components/TopBar'
 import { Button, Card, CardTitle, Pill } from '../components/ui'
-import { useEntries } from '../hooks/useEntries'
 import { useImports } from '../hooks/useImports'
-import { parseOFX, type OfxParsed } from '../lib/ofx'
+import { useImportQueue } from '../hooks/useImportQueue'
 import { formatBRL, formatDateFull } from '../lib/format'
 import { getErrorMessage } from '../lib/errors'
 import type { Import } from '../lib/types'
 
-interface BatchItem {
-  id: string
-  file: File
-  filename: string
-  fileType: 'pdf' | 'ofx'
-  status: 'reading' | 'ready' | 'parse-error' | 'importing' | 'done' | 'import-error'
-  parsed?: OfxParsed
-  error?: string
-  result?: { importedCount: number; matchedCount: number }
-}
-
-let nextId = 0
-
 export function ImportPage() {
-  const { importFile } = useEntries()
+  const { items, confirming, handleFiles: handleFilesInQueue, removeItem, confirmAll, clearQueue } = useImportQueue()
   const { imports, viewImport, deleteImport } = useImports()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [items, setItems] = useState<BatchItem[]>([])
-  const [confirming, setConfirming] = useState(false)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
 
-  function updateItem(id: string, patch: Partial<BatchItem>) {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
-  }
-
-  async function parseOne(item: BatchItem) {
-    try {
-      if (item.fileType === 'ofx') {
-        const text = await item.file.text()
-        const parsed = parseOFX(text)
-        if (parsed.entries.length === 0) throw new Error('Não achei lançamentos nesse OFX.')
-        updateItem(item.id, { status: 'ready', parsed })
-      } else {
-        const { parsePdfEntries } = await import('../lib/pdf')
-        const parsed = await parsePdfEntries(item.file)
-        if (parsed.entries.length === 0) throw new Error('Não reconheci linhas de lançamento nesse PDF.')
-        updateItem(item.id, { status: 'ready', parsed })
-      }
-    } catch (err) {
-      updateItem(item.id, { status: 'parse-error', error: getErrorMessage(err, 'Não consegui ler esse arquivo.') })
-    }
-  }
-
   function handleFiles(files: FileList) {
     setListError(null)
-    const accepted: BatchItem[] = []
-    for (const file of Array.from(files)) {
-      const isOfx = /\.ofx$/i.test(file.name)
-      const isPdf = /\.pdf$/i.test(file.name)
-      if (!isOfx && !isPdf) continue
-      accepted.push({ id: String(nextId++), file, filename: file.name, fileType: isOfx ? 'ofx' : 'pdf', status: 'reading' })
-    }
-    if (accepted.length === 0) {
+    const hasValid = Array.from(files).some((f) => /\.ofx$/i.test(f.name) || /\.pdf$/i.test(f.name))
+    if (!hasValid) {
       setListError('Nenhum arquivo .OFX ou .PDF selecionado.')
       return
     }
-    setItems((prev) => [...prev, ...accepted])
-    accepted.forEach(parseOne)
-  }
-
-  function removeItem(id: string) {
-    setItems((prev) => prev.filter((it) => it.id !== id))
-  }
-
-  async function confirmAll() {
-    setConfirming(true)
-    // Um de cada vez — mantém a barra de progresso legível e evita que a
-    // checagem de "fatura já importada" de dois arquivos corra em paralelo.
-    for (const item of items) {
-      if (item.status !== 'ready') continue
-      updateItem(item.id, { status: 'importing' })
-      try {
-        const parsed = item.parsed!
-        const result = await importFile(
-          { filename: item.filename, fileType: item.fileType, cardOrBankLabel: parsed.bankLabel, dueDate: parsed.dueDate },
-          parsed,
-          item.file
-        )
-        updateItem(item.id, { status: 'done', result })
-      } catch (err) {
-        updateItem(item.id, { status: 'import-error', error: getErrorMessage(err, 'Não consegui salvar esse arquivo.') })
-      }
-    }
-    setConfirming(false)
+    handleFilesInQueue(files)
   }
 
   async function handleView(imp: Import) {
@@ -220,7 +149,7 @@ export function ImportPage() {
             </div>
 
             {finishedBatch ? (
-              <Button variant="ghost" className="w-full justify-center" onClick={() => setItems([])}>
+              <Button variant="ghost" className="w-full justify-center" onClick={clearQueue}>
                 Limpar fila ({doneCount} importado{doneCount === 1 ? '' : 's'})
               </Button>
             ) : (
