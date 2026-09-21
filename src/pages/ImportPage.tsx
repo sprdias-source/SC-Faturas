@@ -205,6 +205,7 @@ export function ImportPage() {
                     {item.status === 'done' && item.result && (
                       <div className="text-[10.5px] text-positive">
                         {item.result.importedCount} lançamentos importados{item.result.matchedCount > 0 && `, ${item.result.matchedCount} casaram com previsto`}
+                        {item.parsed?.dueDate && ` · venc. ${item.parsed.dueDate.split('-').reverse().join('/')}`}
                       </div>
                     )}
                     {(item.status === 'parse-error' || item.status === 'import-error') && <div className="text-[10.5px] text-negative">{item.error}</div>}
