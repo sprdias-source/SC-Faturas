@@ -15,7 +15,7 @@ export interface MonthGroup {
   creditosTotal: number
   pendingCount: number
   pendingAmount: number
-  total: number
+  entryCount: number
 }
 
 export interface YearGroup {
@@ -33,7 +33,7 @@ function emptyMonthGroup(key: string): MonthGroup {
   return {
     key, year, month, monthName: monthLabel(month),
     entries: [], adjustments: [], sources: [],
-    despesasTotal: 0, creditosTotal: 0, pendingCount: 0, pendingAmount: 0, total: 0,
+    despesasTotal: 0, creditosTotal: 0, pendingCount: 0, pendingAmount: 0, entryCount: 0,
   }
 }
 
@@ -44,7 +44,7 @@ function addEntryToGroup(group: MonthGroup, entry: EntryWithSplits) {
     return
   }
   group.entries.push(entry)
-  group.total++
+  group.entryCount++
   if (entry.type === 'despesa') group.despesasTotal += entry.amount
   else group.creditosTotal += entry.amount
   if (entry.status === 'pendente') {

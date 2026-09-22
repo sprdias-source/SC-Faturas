@@ -5,6 +5,7 @@ import { useAccounts, type AccountNode } from '../hooks/useAccounts'
 import { useAccountTotals } from '../hooks/useAccountTotals'
 import { Button, Card, CardTitle, Field, Input, Pill, Select } from '../components/ui'
 import { formatBRL, todayLocalISO } from '../lib/format'
+import { getErrorMessage } from '../lib/errors'
 import type { Account, AccountType } from '../lib/types'
 
 const COLORS = ['#2d3f6b', '#2f7d4f', '#a8721c', '#ad3b3b', '#8b9788']
@@ -20,6 +21,7 @@ export function AccountsPage() {
   const [formParent, setFormParent] = useState('')
   const [formColor, setFormColor] = useState(COLORS[0])
   const [saving, setSaving] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   function startNew(parentId?: string) {
     setEditing({ id: '', household_id: '', name: '', type: 'despesa', parent_id: parentId ?? null, color: COLORS[0], created_at: '' })
@@ -53,8 +55,18 @@ export function AccountsPage() {
   }
 
   async function handleDelete(acc: Account) {
-    if (!confirm(`Excluir "${acc.name}"? Isso não apaga os lançamentos já classificados nela.`)) return
-    await deleteAccount(acc.id)
+    if (!confirm(`Excluir "${acc.name}"?`)) return
+    setDeleteError(null)
+    try {
+      await deleteAccount(acc.id)
+    } catch (err) {
+      const isInUse = typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === '23503'
+      setDeleteError(
+        isInUse
+          ? `"${acc.name}" já tem lançamentos classificados nela e por isso não pode ser excluída. Reclassifique esses lançamentos pra outra conta primeiro, se quiser removê-la.`
+          : getErrorMessage(err, 'Não consegui excluir essa conta.')
+      )
+    }
   }
 
   function renderNode(node: AccountNode, isChild = false) {
@@ -91,6 +103,12 @@ export function AccountsPage() {
       <TopBar title="Contas e subcontas" subtitle="Sua árvore de categorias, compartilhada com a Ana" action={<Button variant="primary" onClick={() => startNew()}><Plus size={14} /> Nova</Button>} />
 
       <div className="px-4">
+        {deleteError && (
+          <div className="mb-4 flex items-start gap-2 text-[12px] text-negative bg-negative-soft border border-negative/30 rounded-lg p-3">
+            {deleteError}
+          </div>
+        )}
+
         <Card className="p-4 mb-4">
           <CardTitle>Suas contas</CardTitle>
           {tree.length === 0 ? (

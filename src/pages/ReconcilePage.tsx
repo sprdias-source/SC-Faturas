@@ -236,8 +236,8 @@ export function ReconcilePage() {
                 <div className="font-mono font-extrabold text-[14.5px] text-warning">{formatBRL(month.pendingAmount)}</div>
               </div>
               <div className="rounded-lg p-2.5 bg-surface border border-border">
-                <div className="text-[9px] font-bold uppercase tracking-wide text-text-faint">Total do mês</div>
-                <div className="font-mono font-extrabold text-[14.5px]">{month.total}</div>
+                <div className="text-[9px] font-bold uppercase tracking-wide text-text-faint">Total líquido</div>
+                <div className="font-mono font-extrabold text-[14.5px]">{formatBRL(month.despesasTotal - month.creditosTotal)}</div>
               </div>
             </div>
 

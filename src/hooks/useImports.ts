@@ -56,9 +56,11 @@ export function useImports() {
         .from('entries')
         .select('id', { count: 'exact', head: true })
         .eq('source_import_id', imp.id)
-      await supabase.from('entries').delete().eq('source_import_id', imp.id)
+      const { error: entriesErr } = await supabase.from('entries').delete().eq('source_import_id', imp.id)
+      if (entriesErr) throw entriesErr
       if (imp.storage_path) await supabase.storage.from('imports').remove([imp.storage_path])
-      await supabase.from('imports').delete().eq('id', imp.id)
+      const { error: impErr } = await supabase.from('imports').delete().eq('id', imp.id)
+      if (impErr) throw impErr
       await supabase.from('activity_log').insert({
         household_id: household.id,
         user_id: user.id,

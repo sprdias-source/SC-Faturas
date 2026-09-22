@@ -5,6 +5,7 @@ import { useHousehold } from './useHousehold'
 import type { AccountType, Entry, EntryKind, EntrySplit } from '../lib/types'
 import type { OfxParsed } from '../lib/ofx'
 import { isBankAdjustmentDescription } from '../lib/entryHelpers'
+import { fetchAllRows } from '../lib/fetchAllRows'
 
 export interface SplitInput {
   account_id: string
@@ -18,28 +19,6 @@ export interface EntryWithSplits extends Entry {
 
 async function logActivity(householdId: string, userId: string, action: string, detail: string) {
   await supabase.from('activity_log').insert({ household_id: householdId, user_id: userId, action, detail })
-}
-
-// O Supabase/PostgREST corta silenciosamente qualquer select em 1000 linhas
-// por padrão — sem paginar, uma vez que a casa passa de 1000 lançamentos no
-// total, os mais antigos (ordenados por data desc) somem da tela sem erro
-// nenhum. Foi exatamente isso que fez dezembro "desaparecer" depois de
-// importar várias faturas de uma vez. `fetchPage` recebe from/to e devolve
-// uma query nova a cada chamada (o builder do supabase-js não pode ser
-// reusado depois de um await).
-async function fetchAllRows<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
-  const pageSize = 1000
-  let offset = 0
-  const all: T[] = []
-  for (;;) {
-    const { data, error } = await fetchPage(offset, offset + pageSize - 1)
-    if (error) throw error
-    const batch = data ?? []
-    all.push(...batch)
-    if (batch.length < pageSize) break
-    offset += batch.length
-  }
-  return all
 }
 
 async function saveSplits(entryId: string, splits: SplitInput[]) {
@@ -214,6 +193,7 @@ export function useEntries(kind: EntryKind | 'todos' = 'todos') {
           .select('*, entry_splits(*)')
           .eq('household_id', household.id)
           .eq('kind', 'previsto')
+          .eq('type', e.isCredit ? 'receita' : 'despesa')
           .eq('date', e.date)
           .eq('amount', e.amount)
           .is('matched_entry_id', null)
